@@ -1,6 +1,6 @@
 name: symterra_rich_text_controller
 description: "A new Flutter package project."
-version: 0.0.1
+version: 0.0.2
 homepage: "https://github.com/SymTerra/SymTerraRichTextController"
 
 environment:
