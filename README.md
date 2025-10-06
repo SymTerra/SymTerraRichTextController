@@ -24,15 +24,15 @@ Or add it manually to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-	symterra_rich_text_controller: ^latest_version
+    symterra_rich_text_controller: ^latest_version
 ```
 
 If you are developing locally, use:
 
 ```yaml
 dependencies:
-	symterra_rich_text_controller:
-		path: ../
+    symterra_rich_text_controller:
+        path: ../
 ```
 
 ## Usage
@@ -78,7 +78,6 @@ controller.insertToken(
 
 // Access ID-backed tokens:
 final tokens = controller.idTokens;
-
 ```
 
 ### When to use `insertToken`
@@ -88,7 +87,7 @@ Use `insertToken` when you want to programmatically add a token to the text fiel
 - **Mentions**: Insert a mention with a user ID so you can reference the correct user in your backend, even if their display name changes.
 - **Tags/Projects**: Insert a hashtag or project reference with a unique ID for robust data binding.
 - **Replacing handles**: Automatically replace partial handles (e.g., `@sa`) with a full token (`@sarah_cro`) when selected.
-```
+
 
 ## Example Project
 
