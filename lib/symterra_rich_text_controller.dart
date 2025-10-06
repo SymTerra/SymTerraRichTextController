@@ -16,8 +16,7 @@ import 'package:flutter/material.dart';
 ///   - Listen for token deletions via per-pattern or global callbacks.
 ///   - Access ID-backed tokens via [idTokens].
 ///
-/// See individual class and method documentation for details.
-
+/// See individual class and method documentation for details.setState(() {});
 /// Payload describing a removed token.
 class DeletedToken {
   /// The removed substring, e.g. "@sarah_cro"

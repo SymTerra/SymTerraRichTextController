@@ -40,6 +40,7 @@ class _ExamplePageState extends State<ExamplePage> {
           trigger: '@',
           onDeleted: (tok) {
             debugPrint('Mention deleted: \'${tok.text}\'');
+            setState(() {});
           },
         ),
         PatternStyle(
@@ -51,16 +52,19 @@ class _ExamplePageState extends State<ExamplePage> {
       ],
       onAnyDeleted: (tok) {
         debugPrint('Token deleted: ${tok.text}');
+        setState(() {});
       },
     );
   }
 
   void _insertMention() {
     _controller.insertToken(patternKey: 'mention', visibleText: '@sarah_cro', tokenId: 'user_42', label: 'Sarah Cro');
+    setState(() {});
   }
 
   void _insertHashtag() {
     _controller.insertToken(patternKey: 'hashtag', visibleText: '#Roadmap_42');
+    setState(() {});
   }
 
   @override
