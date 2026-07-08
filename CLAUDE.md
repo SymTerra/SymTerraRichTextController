@@ -13,4 +13,5 @@
 - British English in all comments, docs and commit messages.
 
 ## Before opening a PR
+- Ensure the branch's `version` in `pubspec.yaml` is higher than the source (default) branch's version, where applicable. Bump it if not.
 - Run the `pre-pr` skill and complete every step before opening the PR.

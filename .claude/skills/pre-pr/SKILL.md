@@ -13,6 +13,7 @@ Run every step in order. Do not open the PR until all pass.
 4. Run `flutter analyze` and fix all warnings.
 5. Run `dart format .`.
 6. Run the relevant tests and confirm they pass.
-7. Ensure the branch name starts with the developer's prefix (derived from git identity). Rename if not.
-8. When committing, commit as the current developer. Never add a "Co-Authored-By: Claude" line.
-9. Only after all the above, open the PR against the default branch.
+7. Ensure the `version` in `pubspec.yaml` is higher than the source (default) branch's version, where applicable. Bump it if not.
+8. Ensure the branch name starts with the developer's prefix (derived from git identity). Rename if not.
+9. When committing, commit as the current developer. Never add a "Co-Authored-By: Claude" line.
+10. Only after all the above, open the PR against the default branch.
