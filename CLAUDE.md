@@ -16,6 +16,14 @@
 - Text styles: always use the text styles defined in the core plugin. Do NOT create new text styles — reuse an existing one and override only its colour when a different colour is needed.
 - Colours: only use the colours defined in the core plugin. Do NOT introduce new colours. If a genuinely new colour is strictly required, STOP and flag it to the designer rather than adding one.
 
+## File naming and coverage
+- View files end with `_view.dart`; widget files end with `_widget.dart`; cubit state files end with `_state.dart`; Freezed model files end with `_model.dart`.
+- Entities/models carry `// coverage:ignore-file` as the first line, unless they contain inner methods that should be tested.
+- `state` files that accumulate real logic should be tested and excluded from the coverage-ignore list case by case, rather than ignoring the whole file.
+
+## Versioning
+- Bump the `pubspec.yaml` version semantically: the last digit for UI or minor, non-breaking changes; the middle digit for changes to a model, local database or endpoint (anything that could break older apps); the first digit for major conceptual or navigation changes.
+
 ## Before opening a PR
 - Ensure the branch's `version` in `pubspec.yaml` is higher than the source (default) branch's version, where applicable. Bump it if not.
 - Run the `pre-pr` skill and complete every step before opening the PR.
