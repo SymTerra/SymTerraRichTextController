@@ -20,6 +20,7 @@
 - The naming rule applies to views, models and cubit state files: view files end with `_view.dart`, Freezed model files end with `_model.dart`, and cubit state files end with `_state.dart`. Other file kinds follow the existing suffix conventions (`_widget`, `_cubit`, `_repository`, `_api`, …).
 - Entities/models carry `// coverage:ignore-file` as the first line, unless they contain inner methods that should be tested.
 - `state` files that accumulate real logic should be tested and excluded from the coverage-ignore list case by case, rather than ignoring the whole file.
+- Every cubit or repository you add or change must have unit tests added or updated in the same PR.
 
 ## Versioning
 - Bump the `pubspec.yaml` version semantically: the last digit for UI or minor, non-breaking changes; the middle digit for changes to a model, local database or endpoint (anything that could break older apps); the first digit for major conceptual or navigation changes.
