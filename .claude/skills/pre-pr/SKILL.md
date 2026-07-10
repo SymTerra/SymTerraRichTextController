@@ -9,7 +9,7 @@ Run every step in order. Do not open the PR until all pass.
 
 1. Confirm Flutter 3.35.7 is active. Install or switch if not.
 2. Move all hard-coded UI strings into the locale files. No raw string literals left in widgets.
-3. Remove redundant comments and commented-out code — in particular the narration comments an AI agent tends to leave behind that merely restate what the code does (e.g. `// loop through items`). Keep comments that explain *why*, and the required markers (`TODO(api)`, `coverage:ignore*`, Firestore-swap markers).
+3. Remove redundant comments and commented-out code — in particular the narration comments an AI agent tends to leave behind that merely restate what the code does (e.g. `// loop through items`). Keep comments that explain *why*, and required directives (`// coverage:ignore*`, `// ignore:`).
 4. Run `flutter analyze` and fix all warnings.
 5. Run `dart format .`.
 6. Add or update unit tests for every cubit or repository you added or changed, then run the relevant tests and confirm they pass.
