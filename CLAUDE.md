@@ -17,7 +17,7 @@
 - Colours: only use the colours defined in the core plugin. Do NOT introduce new colours. If a genuinely new colour is strictly required, STOP and flag it to the designer rather than adding one.
 
 ## File naming and coverage
-- View files end with `_view.dart`; widget files end with `_widget.dart`; cubit state files end with `_state.dart`; Freezed model files end with `_model.dart`.
+- The naming rule applies to views, models and cubit state files: view files end with `_view.dart`, Freezed model files end with `_model.dart`, and cubit state files end with `_state.dart`. Other file kinds follow the existing suffix conventions (`_widget`, `_cubit`, `_repository`, `_api`, …).
 - Entities/models carry `// coverage:ignore-file` as the first line, unless they contain inner methods that should be tested.
 - `state` files that accumulate real logic should be tested and excluded from the coverage-ignore list case by case, rather than ignoring the whole file.
 
