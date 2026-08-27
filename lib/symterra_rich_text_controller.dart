@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'src/layered_text_span.dart';
+import 'src/spell_check_spans.dart';
+
+export 'src/layered_text_span.dart';
+export 'src/spell_check_spans.dart';
+
 /// SymTerraRichTextController
 /// =========================
 ///
@@ -82,13 +88,6 @@ class IdBackedToken {
   IdBackedToken({required this.start, required this.end, required this.key, required this.id, required this.label});
 }
 
-/// Internal styled span used for syntax highlighting.
-class _StyledSpan {
-  final int start, end, priority;
-  final TextStyle style;
-  _StyledSpan({required this.start, required this.end, required this.style, required this.priority});
-}
-
 /// Internal token representation for pattern matches and ID-backed tokens.
 class _Token {
   final int start, end, priority;
@@ -113,7 +112,7 @@ class _Range {
 /// A [TextEditingController] that supports pattern-based highlighting and atomic tokens.
 /// See class-level documentation above for features.
 ///
-class SymTerraRichTextController extends TextEditingController {
+class SymTerraRichTextController extends TextEditingController with SpellCheckSpans {
   /// Creates a rich text controller with the given [patterns] and optional [onAnyDeleted] callback.
   ///
   /// [patterns] are used for highlighting and token recognition.
@@ -319,52 +318,61 @@ class SymTerraRichTextController extends TextEditingController {
   // Rendering (syntax highlighting)
   // ---------------------------------------------------------------------------
 
-  /// Builds the [TextSpan] tree for rendering, applying styles for all matched patterns.
+  /// Builds the [TextSpan] tree for rendering.
+  ///
+  /// Pattern matches form the *exclusive* colour layer; spell-check squiggles and
+  /// the IME composing underline are merged on top as a decoration layer, so a
+  /// misspelling inside a hashtag keeps both the hashtag colour and the squiggle.
   @override
   TextSpan buildTextSpan({required BuildContext context, TextStyle? style, bool withComposing = false}) {
     final t = value.text;
     if (t.isEmpty) return TextSpan(text: '', style: style);
 
-    final spans = <_StyledSpan>[];
+    final exclusive = <StyleRange>[];
     for (int i = 0; i < patterns.length; i++) {
       final ps = patterns[i];
       for (final m in ps.pattern.allMatches(t)) {
-        spans.add(_StyledSpan(start: m.start, end: m.end, style: style?.merge(ps.style) ?? ps.style, priority: i));
-      }
-    }
-    if (spans.isEmpty) return TextSpan(text: t, style: style);
-
-    // Sort by start, then pattern precedence, then longer-first.
-    spans.sort((a, b) {
-      if (a.start != b.start) return a.start.compareTo(b.start);
-      if (a.priority != b.priority) return a.priority.compareTo(b.priority);
-      return (b.end - b.start) - (a.end - a.start);
-    });
-
-    // Resolve overlaps: keep earliest by precedence.
-    final resolved = <_StyledSpan>[];
-    int lastEnd = -1;
-    for (final s in spans) {
-      if (s.start >= lastEnd) {
-        resolved.add(s);
-        lastEnd = s.end;
+        exclusive.add(StyleRange(start: m.start, end: m.end, style: ps.style, priority: i));
       }
     }
 
-    // Build final TextSpan.
-    final children = <InlineSpan>[];
-    int cursor = 0;
-    for (final s in resolved) {
-      if (cursor < s.start) {
-        children.add(TextSpan(text: t.substring(cursor, s.start), style: style));
+    return buildSpellCheckedSpan(
+      text: t,
+      baseStyle: style,
+      exclusive: exclusive,
+      withComposing: withComposing,
+    );
+  }
+
+  /// Replaces `[start, end)` with [replacement], keeping token bookkeeping intact.
+  ///
+  /// Assigning to `text` would leave [idTokens] offsets stale and silently break
+  /// mention IDs, so suggestion replacement must come through here. Any token
+  /// whose text the replacement disturbs is reported through the usual delete
+  /// callbacks so the app can drop it from its own state.
+  @override
+  void replaceRange(int start, int end, String replacement) {
+    final t = text;
+    final from = start.clamp(0, t.length);
+    final to = end.clamp(from, t.length);
+    if (from == to && replacement.isEmpty) return;
+
+    for (final tok in _collectTokens(t)) {
+      if (tok.overlaps(from, to)) {
+        _emitPatternDeleted(tok, t.substring(tok.start, tok.end));
       }
-      children.add(TextSpan(text: t.substring(s.start, s.end), style: s.style));
-      cursor = s.end;
     }
-    if (cursor < t.length) {
-      children.add(TextSpan(text: t.substring(cursor), style: style));
-    }
-    return TextSpan(style: style, children: children);
+
+    final updated = t.replaceRange(from, to, replacement);
+    _idTokens.removeWhere((tok) => tok.start < to && tok.end > from);
+    _shiftIdTokens(to, replacement.length - (to - from));
+
+    _apply(
+      TextEditingValue(
+        text: updated,
+        selection: TextSelection.collapsed(offset: from + replacement.length),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
