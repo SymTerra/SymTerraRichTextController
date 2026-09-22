@@ -46,6 +46,19 @@ TextRange rangeOf(String text, String word) {
   return TextRange(start: start, end: start + word.length);
 }
 
+/// `buildTextSpan` takes a `BuildContext` only because it overrides
+/// `TextEditingController.buildTextSpan`; the span is built from controller
+/// state alone. Passing a context that throws on any access keeps these as plain
+/// unit tests — per the house unit-plus-integration policy — and asserts that
+/// independence rather than just assuming it.
+class _UnusedContext implements BuildContext {
+  const _UnusedContext();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('buildTextSpan must not read its BuildContext');
+}
+
 void main() {
   group('buildLayeredTextSpan', () {
     test('returns a plain span when there are no ranges', () {
@@ -132,22 +145,12 @@ void main() {
   });
 
   group('buildTextSpan with patterns and squiggles', () {
-    testWidgets('a typo inside a hashtag keeps both the hashtag colour and the squiggle', (tester) async {
+    test('a typo inside a hashtag keeps both the hashtag colour and the squiggle', () {
       const text = 'see #Delayy now';
       final controller = buildController(text: text);
       controller.setMisspelledRanges([rangeOf(text, 'Delayy')]);
 
-      late TextSpan span;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) {
-              span = controller.buildTextSpan(context: context, style: const TextStyle(fontSize: 14));
-              return const SizedBox();
-            },
-          ),
-        ),
-      );
+      final span = controller.buildTextSpan(context: const _UnusedContext(), style: const TextStyle(fontSize: 14));
 
       final leaf = leafContaining(span, 'Delayy');
       expect(leaf.$2?.color, blue, reason: 'hashtag colour must survive the squiggle');
@@ -156,22 +159,12 @@ void main() {
       expect(leaf.$2?.fontSize, 14, reason: 'base style must still merge through');
     });
 
-    testWidgets('mention colour survives while an unrelated word is misspelled', (tester) async {
+    test('mention colour survives while an unrelated word is misspelled', () {
       const text = 'Helo @John_Smith';
       final controller = buildController(text: text);
       controller.setMisspelledRanges([rangeOf(text, 'Helo')]);
 
-      late TextSpan span;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) {
-              span = controller.buildTextSpan(context: context, style: const TextStyle());
-              return const SizedBox();
-            },
-          ),
-        ),
-      );
+      final span = controller.buildTextSpan(context: const _UnusedContext(), style: const TextStyle());
 
       expect(leafContaining(span, '@John_Smith').$2?.color, teal);
       expect(leafContaining(span, '@John_Smith').$2?.decoration, isNull,
@@ -179,7 +172,7 @@ void main() {
       expect(leafContaining(span, 'Helo').$2?.decoration, TextDecoration.underline);
     });
 
-    testWidgets('renders the composing underline when withComposing is set', (tester) async {
+    test('renders the composing underline when withComposing is set', () {
       final controller = buildController(text: 'abc def');
       controller.value = const TextEditingValue(
         text: 'abc def',
@@ -187,17 +180,7 @@ void main() {
         composing: TextRange(start: 4, end: 7),
       );
 
-      late TextSpan span;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) {
-              span = controller.buildTextSpan(context: context, style: const TextStyle(), withComposing: true);
-              return const SizedBox();
-            },
-          ),
-        ),
-      );
+      final span = controller.buildTextSpan(context: const _UnusedContext(), style: const TextStyle(), withComposing: true);
 
       expect(leafContaining(span, 'def').$2?.decoration, TextDecoration.underline);
     });
@@ -274,21 +257,11 @@ void main() {
   });
 
   group('SpellCheckableTextEditingController', () {
-    testWidgets('squiggles without any pattern styling', (tester) async {
+    test('squiggles without any pattern styling', () {
       final controller = SpellCheckableTextEditingController(text: 'helo there');
       controller.setMisspelledRanges([rangeOf('helo there', 'helo')]);
 
-      late TextSpan span;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) {
-              span = controller.buildTextSpan(context: context, style: const TextStyle(color: Colors.black));
-              return const SizedBox();
-            },
-          ),
-        ),
-      );
+      final span = controller.buildTextSpan(context: const _UnusedContext(), style: const TextStyle(color: Colors.black));
 
       expect(leafContaining(span, 'helo').$2?.decorationStyle, TextDecorationStyle.wavy);
       expect(leafContaining(span, 'there').$2?.decoration, isNull);
