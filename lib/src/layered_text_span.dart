@@ -88,20 +88,43 @@ TextSpan buildLayeredTextSpan({
     runStart = null;
   }
 
+  // Both layers are walked with a monotonic cursor rather than re-scanned per
+  // slice. Rescanning made this O(slices x ranges) on a path that runs on every
+  // keystroke: measured 0.13 ms at 100 squiggles but 24 ms at 1600.
+  final exclusiveByStart = [...resolvedExclusive]..sort((a, b) => a.start.compareTo(b.start));
+  final decorationsByStart = [...clampedDecorations]..sort((a, b) => a.start.compareTo(b.start));
+  var exclusiveCursor = 0;
+  var decorationCursor = 0;
+  // Decorations may overlap each other, so the ones still open are carried.
+  final openDecorations = <StyleRange>[];
+
   for (int i = 0; i < cuts.length - 1; i++) {
     final sliceStart = cuts[i];
     final sliceEnd = cuts[i + 1];
     if (sliceStart >= sliceEnd) continue;
 
     TextStyle? style = baseStyle;
-    for (final r in resolvedExclusive) {
+
+    // The exclusive layer is non-overlapping and sorted, so the cursor only
+    // ever moves forward past ranges that have ended.
+    while (exclusiveCursor < exclusiveByStart.length && exclusiveByStart[exclusiveCursor].end <= sliceStart) {
+      exclusiveCursor++;
+    }
+    if (exclusiveCursor < exclusiveByStart.length) {
+      final r = exclusiveByStart[exclusiveCursor];
       if (r.start <= sliceStart && r.end >= sliceEnd) {
         style = style?.merge(r.style) ?? r.style;
-        break; // resolved layer is non-overlapping, so at most one applies
       }
     }
-    for (final r in clampedDecorations) {
-      if (r.start <= sliceStart && r.end >= sliceEnd) {
+
+    while (decorationCursor < decorationsByStart.length &&
+        decorationsByStart[decorationCursor].start <= sliceStart) {
+      openDecorations.add(decorationsByStart[decorationCursor]);
+      decorationCursor++;
+    }
+    openDecorations.removeWhere((r) => r.end <= sliceStart);
+    for (final r in openDecorations) {
+      if (r.end >= sliceEnd) {
         style = style?.merge(r.style) ?? r.style;
       }
     }

@@ -344,6 +344,110 @@ void main() {
     });
   });
 
+  group('squiggle bookkeeping on every edit path', () {
+    test('typing in front of a squiggle moves it with the text', () {
+      const before = 'helo world';
+      final c = buildController(text: before);
+      c.setMisspelledRanges([rangeOf(before, 'helo')]);
+      c.selection = const TextSelection.collapsed(offset: 0);
+
+      c.value = const TextEditingValue(text: 'Xhelo world', selection: TextSelection.collapsed(offset: 1));
+
+      final r = c.misspelledRanges.single;
+      expect(c.text.substring(r.start, r.end), 'helo', reason: 'the squiggle must follow the word, not stay at offset 0');
+    });
+
+    test('deleting text before a squiggle never leaves a range past the end', () {
+      const before = 'alpha beta';
+      final c = buildController(text: before);
+      c.setMisspelledRanges([rangeOf(before, 'beta')]);
+      c.selection = const TextSelection(baseOffset: 0, extentOffset: 6);
+
+      c.value = const TextEditingValue(text: 'beta', selection: TextSelection.collapsed(offset: 0));
+
+      for (final r in c.misspelledRanges) {
+        expect(r.end, lessThanOrEqualTo(c.text.length));
+        // The public getter must never hand back something substring() rejects.
+        expect(() => c.text.substring(r.start, r.end), returnsNormally);
+      }
+    });
+
+    test('insertToken re-bases squiggles after the inserted text', () {
+      const before = 'see teh end';
+      final c = buildController(text: before);
+      c.setMisspelledRanges([rangeOf(before, 'teh')]);
+      c.selection = const TextSelection.collapsed(offset: 4);
+
+      c.insertToken(patternKey: 'mention', visibleText: '@John_Smith', tokenId: 'u1', label: 'John Smith');
+
+      for (final r in c.misspelledRanges) {
+        expect(() => c.text.substring(r.start, r.end), returnsNormally);
+      }
+    });
+
+    test('an atomic token deletion leaves no out-of-range squiggle', () {
+      final c = buildController(text: 'see @John_Smith teh end');
+      c.setMisspelledRanges([rangeOf('see @John_Smith teh end', 'teh')]);
+      c.selection = const TextSelection.collapsed(offset: 15);
+
+      // Backspace into the mention: the whole token goes atomically.
+      c.value = const TextEditingValue(text: 'see @John_Smit teh end', selection: TextSelection.collapsed(offset: 14));
+
+      for (final r in c.misspelledRanges) {
+        expect(() => c.text.substring(r.start, r.end), returnsNormally);
+      }
+    });
+  });
+
+  group('deletion reporting', () {
+    test('a whole-token rewrite is reported deleted', () {
+      final deleted = <DeletedToken>[];
+      final c = buildController(text: 'see #Alpha now', onAnyDeleted: deleted.add);
+
+      c.replaceRange(4, 10, '#Beta');
+
+      expect(c.text, 'see #Beta now');
+      expect(
+        deleted.map((d) => d.text),
+        contains('#Alpha'),
+        reason: '#Alpha no longer exists anywhere; the app must be told to drop it',
+      );
+    });
+
+    test('a typo corrected inside a token is still not reported', () {
+      final deleted = <DeletedToken>[];
+      final c = buildController(text: 'see #Delayy now', onAnyDeleted: deleted.add);
+
+      c.replaceRange(5, 11, 'Delay');
+
+      expect(c.text, 'see #Delay now');
+      expect(deleted, isEmpty, reason: 'the hashtag is still on screen');
+    });
+  });
+
+  group('selection deletion', () {
+    test('select-all delete removes everything, not just the tokens', () {
+      final c = buildController(text: 'hello @john_doe world');
+      c.selection = const TextSelection(baseOffset: 0, extentOffset: 21);
+
+      c.value = const TextEditingValue(text: '', selection: TextSelection.collapsed(offset: 0));
+
+      expect(c.text, isEmpty, reason: 'the non-token text between and around tokens must go too');
+    });
+
+    test('deleting a multi-token selection leaves no stale id offsets', () {
+      final c = buildController(text: '@aaa_bbb @ccc_ddd');
+      c.insertToken(patternKey: 'mention', visibleText: '@aaa_bbb', tokenId: 'u1');
+      c.selection = TextSelection(baseOffset: 0, extentOffset: c.text.length);
+
+      c.value = TextEditingValue(text: '', selection: const TextSelection.collapsed(offset: 0));
+
+      for (final tok in c.idTokens) {
+        expect(tok.end, lessThanOrEqualTo(c.text.length), reason: 'an id token cannot outlive the text it indexed');
+      }
+    });
+  });
+
   group('SpellCheckableTextEditingController', () {
     test('squiggles without any pattern styling', () {
       final controller = SpellCheckableTextEditingController(text: 'helo there');
