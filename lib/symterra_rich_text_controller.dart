@@ -357,15 +357,36 @@ class SymTerraRichTextController extends TextEditingController with SpellCheckSp
     final to = end.clamp(from, t.length);
     if (from == to && replacement.isEmpty) return;
 
-    for (final tok in _collectTokens(t)) {
-      if (tok.overlaps(from, to)) {
-        _emitPatternDeleted(tok, t.substring(tok.start, tok.end));
+    final updated = t.replaceRange(from, to, replacement);
+    final delta = replacement.length - (to - from);
+
+    // Where the patterns still match after the edit, as "key@start". Built from
+    // the patterns directly rather than _collectTokens, because _idTokens still
+    // holds pre-edit offsets at this point.
+    final survivors = <String>{};
+    for (final ps in patterns) {
+      for (final m in ps.pattern.allMatches(updated)) {
+        survivors.add('${ps.key}@${m.start}');
       }
     }
 
-    final updated = t.replaceRange(from, to, replacement);
+    for (final tok in _collectTokens(t)) {
+      if (!tok.overlaps(from, to)) continue;
+      if (tok.tokenId == null) {
+        // A pure pattern token still matching where it started has survived the
+        // edit: correcting the typo inside "#Delayy" leaves "#Delay" rendered,
+        // and reporting that as a deletion desyncs the app from the text.
+        // An id-backed token is different — its binding is dropped below, so
+        // the app genuinely does have to hear about it.
+        final projected = tok.start <= from ? tok.start : tok.start + delta;
+        if (survivors.contains('${tok.style.key}@$projected')) continue;
+      }
+      _emitPatternDeleted(tok, t.substring(tok.start, tok.end));
+    }
+
     _idTokens.removeWhere((tok) => tok.start < to && tok.end > from);
-    _shiftIdTokens(to, replacement.length - (to - from));
+    _shiftIdTokens(to, delta);
+    shiftMisspelledRangesForEdit(from, to, replacement.length);
 
     _apply(
       TextEditingValue(

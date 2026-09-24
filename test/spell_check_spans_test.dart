@@ -256,6 +256,94 @@ void main() {
     });
   });
 
+  group('squiggle bookkeeping across edits', () {
+    test('accepting a suggestion clears that word and re-bases the ones after it', () {
+      const before = 'teh see #Delayy';
+      final controller = buildController(text: before);
+      controller.setMisspelledRanges([rangeOf(before, 'teh'), rangeOf(before, 'Delayy')]);
+
+      controller.replaceRange(0, 3, 'their');
+
+      expect(controller.text, 'their see #Delayy');
+      // The corrected word's squiggle is gone, not left over the new text.
+      expect(controller.misspelledRanges.length, 1);
+      final r = controller.misspelledRanges.single;
+      expect(controller.text.substring(r.start, r.end), 'Delayy');
+    });
+
+    test('a same-length correction still drops the squiggle it replaced', () {
+      const before = 'teh end';
+      final controller = buildController(text: before);
+      controller.setMisspelledRanges([rangeOf(before, 'teh')]);
+
+      controller.replaceRange(0, 3, 'the');
+
+      expect(controller.text, 'the end');
+      expect(controller.misspelledRanges, isEmpty);
+    });
+
+    test('a range entirely before the edit is untouched', () {
+      const before = 'helo and teh';
+      final controller = buildController(text: before);
+      controller.setMisspelledRanges([rangeOf(before, 'helo')]);
+
+      controller.replaceRange(9, 12, 'the');
+
+      final r = controller.misspelledRanges.single;
+      expect(controller.text.substring(r.start, r.end), 'helo');
+    });
+
+    test('shrinking the text never leaves a range past its end', () {
+      const before = 'alpha beta gamma';
+      final controller = buildController(text: before);
+      controller.setMisspelledRanges([rangeOf(before, 'gamma')]);
+
+      controller.replaceRange(0, 6, '');
+
+      for (final r in controller.misspelledRanges) {
+        expect(r.end, lessThanOrEqualTo(controller.text.length));
+      }
+    });
+  });
+
+  group('replaceRange deletion reporting', () {
+    test('a token the edit destroys is reported', () {
+      final deleted = <DeletedToken>[];
+      final controller = buildController(text: 'see #Delayy now', onAnyDeleted: deleted.add);
+
+      controller.replaceRange(4, 11, 'ok');
+
+      expect(controller.text, 'see ok now');
+      expect(deleted.map((d) => d.text), contains('#Delayy'));
+    });
+
+    test('a token that survives an edit inside it is not reported deleted', () {
+      final deleted = <DeletedToken>[];
+      final controller = buildController(text: 'see #Delayy now', onAnyDeleted: deleted.add);
+
+      // Correct the typo inside the hashtag: "#Delayy" -> "#Delay".
+      controller.replaceRange(5, 11, 'Delay');
+
+      expect(controller.text, 'see #Delay now');
+      expect(deleted, isEmpty, reason: 'the hashtag is still on screen');
+    });
+  });
+
+  group('replaceRange argument handling', () {
+    test('reversed arguments do not append', () {
+      final controller = buildController(text: 'abcdef');
+      controller.replaceRange(5, 1, 'X');
+      expect(controller.text.length, lessThanOrEqualTo('abcdef'.length + 1));
+      expect(controller.text.endsWith('X'), isFalse, reason: 'must not silently append');
+    });
+
+    test('out-of-bounds arguments are clamped', () {
+      final controller = buildController(text: 'abc');
+      controller.replaceRange(-5, 99, 'Z');
+      expect(controller.text, 'Z');
+    });
+  });
+
   group('SpellCheckableTextEditingController', () {
     test('squiggles without any pattern styling', () {
       final controller = SpellCheckableTextEditingController(text: 'helo there');

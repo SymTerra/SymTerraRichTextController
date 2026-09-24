@@ -48,6 +48,29 @@ mixin SpellCheckSpans on TextEditingController {
   /// Clears all squiggles.
   void clearMisspelledRanges() => setMisspelledRanges(const <TextRange>[]);
 
+  /// Re-bases the squiggles across an edit that replaced `[from, to)` with
+  /// [replacementLength] characters.
+  ///
+  /// Ranges the edit touched are dropped — the text they were derived from no
+  /// longer exists — and ranges after it shift by the length delta. Without
+  /// this the squiggle an accepted suggestion was meant to clear stays on
+  /// screen and every later one lands on the wrong word.
+  ///
+  /// Deliberately does not notify: callers apply a new [TextEditingValue]
+  /// immediately afterwards, which notifies once for both changes.
+  @protected
+  void shiftMisspelledRangesForEdit(int from, int to, int replacementLength) {
+    if (_misspelledRanges.isEmpty) return;
+    final delta = replacementLength - (to - from);
+    _misspelledRanges = List<TextRange>.unmodifiable(<TextRange>[
+      for (final r in _misspelledRanges)
+        if (r.end <= from)
+          r
+        else if (r.start >= to)
+          TextRange(start: r.start + delta, end: r.end + delta),
+    ]);
+  }
+
   /// The spell-check ranges as a decoration layer for [buildLayeredTextSpan].
   List<StyleRange> get spellCheckStyleRanges => <StyleRange>[
     for (final r in _misspelledRanges) StyleRange(start: r.start, end: r.end, style: misspelledStyle),
@@ -95,6 +118,7 @@ mixin SpellCheckSpans on TextEditingController {
     final from = start.clamp(0, current.length);
     final to = end.clamp(from, current.length);
     if (from == to && replacement.isEmpty) return;
+    shiftMisspelledRangesForEdit(from, to, replacement.length);
     value = TextEditingValue(
       text: current.replaceRange(from, to, replacement),
       selection: TextSelection.collapsed(offset: from + replacement.length),
