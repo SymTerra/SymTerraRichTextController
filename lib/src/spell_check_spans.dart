@@ -85,27 +85,67 @@ mixin SpellCheckSpans on TextEditingController {
     TextStyle? baseStyle,
     List<StyleRange> exclusive = const <StyleRange>[],
   }) {
-    final decorations = <StyleRange>[...spellCheckStyleRanges];
+    // The field must stay usable even if this layer is broken. A throw here
+    // reaches EditableText's build, which renders an ErrorWidget in its place:
+    // the user loses the whole composer over a squiggle. So the span build
+    // degrades in two steps instead — first drop the spell-check decorations,
+    // which are computed from engine output and so the likelier source of a bad
+    // range, then fall back to unstyled text. Losing colour beats losing the field.
+    //
+    // The decoration list is built inside the guard, not before it: reading
+    // spellCheckStyleRanges is itself part of what can fail.
+    try {
+      final decorations = <StyleRange>[...spellCheckStyleRanges];
 
-    // Composing goes on last: while an IME is mid-word its underline is the
-    // authoritative feedback, and the driver exempts the caret's word from
-    // checking anyway.
-    if (withComposing && value.isComposingRangeValid && !value.composing.isCollapsed) {
-      decorations.add(
-        StyleRange(
-          start: value.composing.start,
-          end: value.composing.end,
-          style: const TextStyle(decoration: TextDecoration.underline),
-        ),
+      // Composing goes on last: while an IME is mid-word its underline is the
+      // authoritative feedback, and the driver exempts the caret's word from
+      // checking anyway.
+      if (withComposing && value.isComposingRangeValid && !value.composing.isCollapsed) {
+        decorations.add(
+          StyleRange(
+            start: value.composing.start,
+            end: value.composing.end,
+            style: const TextStyle(decoration: TextDecoration.underline),
+          ),
+        );
+      }
+
+      return buildLayeredTextSpan(
+        text: text,
+        baseStyle: baseStyle,
+        exclusive: exclusive,
+        decorations: decorations,
       );
+    } catch (error, stackTrace) {
+      _reportSpanFailure(error, stackTrace, 'decorated');
     }
 
-    return buildLayeredTextSpan(
-      text: text,
-      baseStyle: baseStyle,
-      exclusive: exclusive,
-      decorations: decorations,
-    );
+    try {
+      return buildLayeredTextSpan(text: text, baseStyle: baseStyle, exclusive: exclusive);
+    } catch (error, stackTrace) {
+      _reportSpanFailure(error, stackTrace, 'pattern-only');
+    }
+
+    return TextSpan(text: text, style: baseStyle);
+  }
+
+  /// Routed through [FlutterError.reportError] rather than a logger: this is a
+  /// leaf package with no Sentry dependency, and the host's `FlutterError.onError`
+  /// already forwards there. Guarded because a reporting failure must not become
+  /// the thing that breaks the field.
+  void _reportSpanFailure(Object error, StackTrace stackTrace, String stage) {
+    try {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'symterra_rich_text_controller',
+          context: ErrorDescription('building the $stage span layer; falling back'),
+        ),
+      );
+    } catch (_) {
+      // Nothing left to do: the fallback span is returned either way.
+    }
   }
 
   /// Replaces `[start, end)` with [replacement] and puts the caret after it.
