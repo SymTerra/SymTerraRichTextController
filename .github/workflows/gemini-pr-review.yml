@@ -1,0 +1,23 @@
+name: Gemini PR Review
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Number of the pull request to review"
+        required: true
+        type: string
+jobs:
+  review:
+    uses: SymTerra/.github/.github/workflows/gemini-review.yml@main
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      id-token: write
+    secrets: inherit
+    with:
+      pr_number: ${{ inputs.pr_number }}

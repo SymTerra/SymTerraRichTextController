@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'src/layered_text_span.dart';
+import 'src/spell_check_spans.dart';
+
+export 'src/layered_text_span.dart';
+export 'src/spell_check_spans.dart';
+
 /// SymTerraRichTextController
 /// =========================
 ///
@@ -82,13 +88,6 @@ class IdBackedToken {
   IdBackedToken({required this.start, required this.end, required this.key, required this.id, required this.label});
 }
 
-/// Internal styled span used for syntax highlighting.
-class _StyledSpan {
-  final int start, end, priority;
-  final TextStyle style;
-  _StyledSpan({required this.start, required this.end, required this.style, required this.priority});
-}
-
 /// Internal token representation for pattern matches and ID-backed tokens.
 class _Token {
   final int start, end, priority;
@@ -113,7 +112,7 @@ class _Range {
 /// A [TextEditingController] that supports pattern-based highlighting and atomic tokens.
 /// See class-level documentation above for features.
 ///
-class SymTerraRichTextController extends TextEditingController {
+class SymTerraRichTextController extends TextEditingController with SpellCheckSpans {
   /// Creates a rich text controller with the given [patterns] and optional [onAnyDeleted] callback.
   ///
   /// [patterns] are used for highlighting and token recognition.
@@ -170,6 +169,7 @@ class SymTerraRichTextController extends TextEditingController {
     _removeIdTokensInRange(replaceStart, replaceEnd);
     final delta = visibleText.length - (replaceEnd - replaceStart);
     _shiftIdTokens(replaceEnd, delta);
+    shiftMisspelledRangesForEdit(replaceStart, replaceEnd, visibleText.length);
 
     final start = replaceStart;
     final end = replaceStart + visibleText.length;
@@ -220,28 +220,14 @@ class SymTerraRichTextController extends TextEditingController {
       // ATOMIC: if the caret is inside a token, replace the WHOLE token with the inserted text.
       final token = _tokenContaining(tokens, i);
       if (token != null) {
-        final removed = oldText.substring(token.start, token.end);
-        final updated = oldText.replaceRange(token.start, token.end, inserted);
-        final caret = token.start + inserted.length;
-
-        // Update ID-backed tokens: remove the old token, then shift everything after.
-        _removeIdTokensInRange(token.start, token.end);
-        _shiftIdTokens(token.end, -(token.end - token.start));
-        _shiftIdTokens(token.start, inserted.length);
-
-        _emitPatternDeleted(token, removed);
-
-        _apply(
-          TextEditingValue(
-            text: updated,
-            selection: TextSelection.collapsed(offset: caret),
-          ),
-        );
+        // Typing inside a token replaces it whole.
+        _applyEdit(token.start, token.end, inserted, caret: token.start + inserted.length);
         return;
       }
 
-      // Insertion outside tokens: shift IDs to the right.
+      // Insertion outside tokens: shift both registries and take the value as given.
       _shiftIdTokens(i, delta);
+      shiftMisspelledRangesForEdit(i, i, delta);
       _lastValue = newValue;
       super.value = newValue;
       return;
@@ -275,42 +261,36 @@ class SymTerraRichTextController extends TextEditingController {
       // ATOMIC: remove ALL tokens overlapped by the deletion range.
       final overlapped = tokens.where((t) => t.overlaps(delStart, delEnd)).toList();
       if (overlapped.isEmpty) {
-        // Regular deletion outside tokens: shift IDs left.
+        // Regular deletion outside tokens: shift both registries left.
         final delta = newText.length - oldText.length; // negative
         _shiftIdTokens(delStart, delta);
+        shiftMisspelledRangesForEdit(delStart, delEnd, 0);
         _lastValue = newValue;
         super.value = newValue;
         return;
       }
 
-      // Remove overlapped tokens left→right in a single pass.
-      int shift = 0;
-      String updated = oldText;
-      int caret = delStart;
+      // ATOMIC: widen the deletion to whole tokens, then remove the span in one
+      // edit. Removing the token ranges one at a time left everything the user
+      // actually selected between them in the text — select-all-delete over
+      // "hello @john_doe world" left "hello  world" — and re-based _idTokens
+      // with original offsets after earlier iterations had already shifted them.
+      var from = delStart;
+      var to = delEnd;
       for (final t in overlapped) {
-        final s = t.start + shift;
-        final e = t.end + shift;
-        final removed = updated.substring(s, e);
-        updated = updated.replaceRange(s, e, '');
-        shift -= (e - s);
-        caret = s;
-
-        _removeIdTokensInRange(t.start, t.end);
-        _shiftIdTokens(t.end, -(t.end - t.start));
-
-        _emitPatternDeleted(t, removed);
+        if (t.start < from) from = t.start;
+        if (t.end > to) to = t.end;
       }
-
-      _apply(
-        TextEditingValue(
-          text: updated,
-          selection: TextSelection.collapsed(offset: caret.clamp(0, updated.length)),
-        ),
-      );
+      _applyEdit(from, to, '');
       return;
     }
 
-    // Selection moves / no size change — just apply.
+    // Selection moves, or an edit we cannot localise (no valid selection to
+    // derive the range from). If the text actually changed, the squiggles index
+    // a string that no longer exists, and misspelledRanges is public — so drop
+    // them rather than hand a caller a range substring() would reject. The
+    // driver re-derives on the next check.
+    if (newText != oldText) clearMisspelledRanges();
     _lastValue = newValue;
     super.value = newValue;
   }
@@ -319,52 +299,94 @@ class SymTerraRichTextController extends TextEditingController {
   // Rendering (syntax highlighting)
   // ---------------------------------------------------------------------------
 
-  /// Builds the [TextSpan] tree for rendering, applying styles for all matched patterns.
+  /// Builds the [TextSpan] tree for rendering.
+  ///
+  /// Pattern matches form the *exclusive* colour layer; spell-check squiggles and
+  /// the IME composing underline are merged on top as a decoration layer, so a
+  /// misspelling inside a hashtag keeps both the hashtag colour and the squiggle.
   @override
   TextSpan buildTextSpan({required BuildContext context, TextStyle? style, bool withComposing = false}) {
     final t = value.text;
     if (t.isEmpty) return TextSpan(text: '', style: style);
 
-    final spans = <_StyledSpan>[];
+    final exclusive = <StyleRange>[];
     for (int i = 0; i < patterns.length; i++) {
       final ps = patterns[i];
       for (final m in ps.pattern.allMatches(t)) {
-        spans.add(_StyledSpan(start: m.start, end: m.end, style: style?.merge(ps.style) ?? ps.style, priority: i));
-      }
-    }
-    if (spans.isEmpty) return TextSpan(text: t, style: style);
-
-    // Sort by start, then pattern precedence, then longer-first.
-    spans.sort((a, b) {
-      if (a.start != b.start) return a.start.compareTo(b.start);
-      if (a.priority != b.priority) return a.priority.compareTo(b.priority);
-      return (b.end - b.start) - (a.end - a.start);
-    });
-
-    // Resolve overlaps: keep earliest by precedence.
-    final resolved = <_StyledSpan>[];
-    int lastEnd = -1;
-    for (final s in spans) {
-      if (s.start >= lastEnd) {
-        resolved.add(s);
-        lastEnd = s.end;
+        exclusive.add(StyleRange(start: m.start, end: m.end, style: ps.style, priority: i));
       }
     }
 
-    // Build final TextSpan.
-    final children = <InlineSpan>[];
-    int cursor = 0;
-    for (final s in resolved) {
-      if (cursor < s.start) {
-        children.add(TextSpan(text: t.substring(cursor, s.start), style: style));
+    return buildSpellCheckedSpan(
+      text: t,
+      baseStyle: style,
+      exclusive: exclusive,
+      withComposing: withComposing,
+    );
+  }
+
+  /// Replaces `[start, end)` with [replacement], keeping token bookkeeping intact.
+  ///
+  /// Assigning to `text` would leave [idTokens] offsets stale and silently break
+  /// mention IDs, so suggestion replacement must come through here. Any token
+  /// whose text the replacement disturbs is reported through the usual delete
+  /// callbacks so the app can drop it from its own state.
+  @override
+  void replaceRange(int start, int end, String replacement) {
+    final t = text;
+    final from = start.clamp(0, t.length);
+    final to = end.clamp(from, t.length);
+    if (from == to && replacement.isEmpty) return;
+    _applyEdit(from, to, replacement);
+  }
+
+  /// The single edit path.
+  ///
+  /// Every mutation goes through here so the two pieces of offset-indexed state
+  /// this class owns — the id-token registry and the spell-check ranges — are
+  /// re-based exactly once, together. Keeping that bookkeeping per-branch is how
+  /// `replaceRange` ended up correct while typing left squiggles on the wrong
+  /// words and `misspelledRanges` could return a range past the end of `text`.
+  void _applyEdit(int from, int to, String replacement, {int? caret}) {
+    final t = text;
+    final updated = t.replaceRange(from, to, replacement);
+    final delta = replacement.length - (to - from);
+
+    // Where each pattern still matches after the edit, as "key@start". Built
+    // from the patterns directly rather than _collectTokens, because _idTokens
+    // still holds pre-edit offsets at this point.
+    final survivors = <String>{};
+    for (final ps in patterns) {
+      for (final m in ps.pattern.allMatches(updated)) {
+        survivors.add('${ps.key}@${m.start}');
       }
-      children.add(TextSpan(text: t.substring(s.start, s.end), style: s.style));
-      cursor = s.end;
     }
-    if (cursor < t.length) {
-      children.add(TextSpan(text: t.substring(cursor), style: style));
+
+    for (final tok in _collectTokens(t)) {
+      if (!tok.overlaps(from, to)) continue;
+      // A pure pattern token survives only if the edit left its first character
+      // alone AND the same pattern still matches where it started. `from` past
+      // its start is what separates correcting a typo inside "#Delayy" (the
+      // hashtag is still there) from rewriting "#Alpha" to "#Beta" (it is not) —
+      // matching on position alone reported neither.
+      if (tok.tokenId == null && from > tok.start && survivors.contains('${tok.style.key}@${tok.start}')) {
+        continue;
+      }
+      _emitPatternDeleted(tok, t.substring(tok.start, tok.end));
     }
-    return TextSpan(style: style, children: children);
+
+    _idTokens.removeWhere((tok) => tok.start < to && tok.end > from);
+    _shiftIdTokens(to, delta);
+    shiftMisspelledRangesForEdit(from, to, replacement.length);
+
+    _apply(
+      TextEditingValue(
+        text: updated,
+        selection: TextSelection.collapsed(
+          offset: (caret ?? from + replacement.length).clamp(0, updated.length),
+        ),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
